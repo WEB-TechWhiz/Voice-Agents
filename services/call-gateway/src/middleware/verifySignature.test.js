@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { logger } = require('shared');
 const verifyExotelSignature = require('./verifySignature');
 
 const createResponse = () => {
@@ -10,9 +11,15 @@ const createResponse = () => {
 
 describe('verifyExotelSignature', () => {
   const originalEnv = { ...process.env };
+  let warnSpy;
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+  });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    warnSpy.mockRestore();
   });
 
   test('skips verification in mock mode', () => {
