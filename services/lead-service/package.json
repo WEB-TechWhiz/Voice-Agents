@@ -1,0 +1,19 @@
+{
+  "name": "lead-service",
+  "version": "1.0.0",
+  "description": "Lead Service for Voice AI SaaS",
+  "main": "src/app.js",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.2.1",
+    "dotenv": "^16.4.5",
+    "shared": "file:../../shared"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  }
+}

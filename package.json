@@ -1,0 +1,33 @@
+{
+  "name": "voice-ai-saas",
+  "version": "1.0.0",
+  "description": "Multi-tenant Voice AI SaaS Platform for Indian Markets",
+  "main": "index.js",
+  "workspaces": [
+    "shared",
+    "services/*"
+  ],
+  "scripts": {
+    "bootstrap": "npm install && npm run bootstrap -w shared && npm run bootstrap --workspaces --if-present",
+    "dev": "concurrently \"npm run dev -w services/lead-service\" \"npm run dev -w services/stt-service\" \"npm run dev -w services/nlu-service\" \"npm run dev -w services/tts-service\" \"npm run dev -w services/call-gateway\" \"npm run dev -w services/dashboard-api\" \"npm run dev -w services/notification-service\"",
+    "start": "docker-compose up -d && npm run dev",
+    "stop": "docker-compose down",
+    "test": "jest --passWithNoTests",
+    "check": "node --check shared/index.js && node --check services/call-gateway/src/app.js && node --check services/lead-service/src/app.js && node --check services/stt-service/src/app.js && node --check services/nlu-service/src/app.js && node --check services/tts-service/src/app.js && node --check services/dashboard-api/src/app.js && node --check services/notification-service/src/app.js"
+  },
+  "keywords": [
+    "voice",
+    "ai",
+    "saas",
+    "exotel",
+    "bhashini",
+    "claude",
+    "elevenlabs"
+  ],
+  "author": "Muffincodes",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "jest": "^29.7.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "lead-service",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": { "start": "node src/index.js", "dev": "nodemon src/index.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.x",
+    "uuid": "^9.x",
+    "winston": "^3.x",
+    "dotenv": "^16.x"
+  }
+}

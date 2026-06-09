@@ -1,0 +1,105 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs and runtime output
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+runtime-*.log
+*-service.err.log
+*-service.out.log
+*-gateway.err.log
+*-gateway.out.log
+voice-agents-dev.err.log
+voice-agents-dev.out.log
+dashboard-api.err.log
+dashboard-api.out.log
+call-gateway.err.log
+call-gateway.out.log
+
+# Build and generated output
+dist/
+build/
+coverage/
+.nyc_output/
+.next/
+out/
+.vite/
+.turbo/
+.cache/
+tmp/
+temp/
+scratch/
+
+# Local data and databases
+data/
+db-data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.rdb
+dump.rdb
+
+# Voice, call, and AI artifacts
+recordings/
+transcripts/
+uploads/
+downloads/
+exports/
+generated/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.webm
+
+# Docker and local infrastructure
+.docker/
+docker-data/
+
+# Test artifacts
+junit.xml
+test-results/
+playwright-report/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# TypeScript and tooling caches
+*.tsbuildinfo
+.eslintcache
+
+# Optional package-manager caches
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnpm-store/

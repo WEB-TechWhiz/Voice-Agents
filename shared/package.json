@@ -1,0 +1,14 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "description": "Shared constants and utilities for Voice AI SaaS",
+  "main": "index.js",
+  "dependencies": {
+    "mongoose": "^8.2.1",
+    "winston": "^3.11.0",
+    "dotenv": "^16.4.5"
+  },
+  "scripts": {
+    "bootstrap": "npm install"
+  }
+}

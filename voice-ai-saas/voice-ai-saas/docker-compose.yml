@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+
+  # ── Infra ──────────────────────────────────────────
+  mongodb:
+    image: mongo:7-jammy
+    container_name: voiceai-mongo
+    ports: ["27017:27017"]
+    volumes: [mongo_data:/data/db]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: voiceai-redis
+    ports: ["6379:6379"]
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    container_name: voiceai-ollama
+    ports: ["11434:11434"]
+    volumes: [ollama_data:/root/.ollama]
+    restart: unless-stopped
+
+  whisper:
+    build:
+      context: ./services/stt-service
+      dockerfile: Dockerfile.whisper
+    container_name: voiceai-whisper
+    ports: ["8081:8081"]
+    volumes: [whisper_models:/app/models]
+    restart: unless-stopped
+
+  coqui-tts:
+    build:
+      context: ./services/tts-service
+      dockerfile: Dockerfile.tts
+    container_name: voiceai-coqui
+    ports: ["8082:8082"]
+    restart: unless-stopped
+
+  # ── Microservices ──────────────────────────────────
+  call-gateway:
+    build: ./services/call-gateway
+    container_name: voiceai-call-gateway
+    ports: ["4001:4001"]
+    env_file: .env
+    depends_on: [mongodb, redis]
+    restart: unless-stopped
+
+  nlu-service:
+    build: ./services/nlu-service
+    container_name: voiceai-nlu
+    ports: ["4002:4002"]
+    env_file: .env
+    depends_on: [ollama]
+    restart: unless-stopped
+
+  stt-service:
+    build: ./services/stt-service
+    container_name: voiceai-stt
+    ports: ["4003:4003"]
+    env_file: .env
+    depends_on: [whisper]
+    restart: unless-stopped
+
+  tts-service:
+    build: ./services/tts-service
+    container_name: voiceai-tts
+    ports: ["4004:4004"]
+    env_file: .env
+    depends_on: [coqui-tts]
+    restart: unless-stopped
+
+  lead-service:
+    build: ./services/lead-service
+    container_name: voiceai-lead
+    ports: ["4005:4005"]
+    env_file: .env
+    depends_on: [mongodb]
+    restart: unless-stopped
+
+  notification-service:
+    build: ./services/notification-service
+    container_name: voiceai-notify
+    ports: ["4006:4006"]
+    env_file: .env
+    volumes: [wa_session:/app/.whatsapp-session]
+    restart: unless-stopped
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: voiceai-auth
+    ports: ["4007:4007"]
+    env_file: .env
+    depends_on: [mongodb]
+    restart: unless-stopped
+
+  dashboard-api:
+    build: ./services/dashboard-api
+    container_name: voiceai-dashboard
+    ports: ["4008:4008"]
+    env_file: .env
+    depends_on: [mongodb, redis]
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  ollama_data:
+  whisper_models:
+  wa_session:

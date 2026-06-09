@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+RUN pip install TTS flask --no-cache-dir
+WORKDIR /app
+COPY tts_server.py .
+EXPOSE 8082
+CMD ["python", "tts_server.py"]

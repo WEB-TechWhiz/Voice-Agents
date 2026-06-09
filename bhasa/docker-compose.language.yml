@@ -1,0 +1,60 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────
+# Add this to your EXISTING docker-compose.yml
+# Either copy the `language-service` block into your file,
+# OR run: docker compose -f docker-compose.yml -f docker-compose.language.yml up
+# ─────────────────────────────────────────────────────────────
+
+services:
+  language-service:
+    build:
+      context: ./language-service
+      dockerfile: Dockerfile
+    container_name: language-service
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+      - ENV=${ENV:-prod}
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - OLLAMA_URL=http://ollama:11434       # uses ollama container (see below)
+      - NLU_MODEL=${NLU_MODEL:-mistral}
+      - TTS_ENGINE=${TTS_ENGINE:-gtts}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - REDIS_URL=redis://redis:6379
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-60}
+    depends_on:
+      - redis
+      - ollama
+    volumes:
+      - whisper_cache:/root/.cache/huggingface    # persist downloaded models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Ollama (local LLM for NLU) ─────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    # After first run: docker exec ollama ollama pull mistral
+
+  # ── Redis (rate limiting) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  whisper_cache:
+  ollama_models:

@@ -1,0 +1,345 @@
+# Integrate Bhasa (Language Service) into Voice Agents Main Project
+
+## Project Analysis Summary
+
+Your **Voice Agents** workspace contains **three codebases**:
+
+| Codebase | Location | Stack | Status |
+|----------|----------|-------|--------|
+| **Main Project** (root) | `d:\Voice Agents\` | Node.js/Express, 7 microservices on ports 4001–4007 | ✅ Working MVP with mock STT/NLU/TTS |
+| **Bhasa** | `d:\Voice Agents\bhasa\` | Python/FastAPI, single service on port 8003 | ✅ Real AI: Whisper ASR + Ollama NLU + gTTS/Coqui TTS |
+| **voice-ai-saas** (v2) | `d:\Voice Agents\voice-ai-saas\voice-ai-saas\` | Node.js, 9 services, Docker-native, Dockerfiles | 🔨 Scaffolded but has port conflicts & incomplete wiring |
+
+### The Core Problem
+
+The **main project's** `stt-service`, `nlu-service`, and `tts-service` are **mock stubs** — they return static/rule-based responses. Meanwhile, **Bhasa** has **real AI capabilities** (Whisper, Ollama/OpenAI, gTTS/Coqui/ElevenLabs) but is a standalone Python service that nobody calls.
+
+### Integration Goal
+
+Wire the main project's three mock Node.js services to call Bhasa's real AI endpoints when `MOCK_MODE=false`, giving you **real speech-to-text, AI-powered NLU, and multilingual TTS** without rewriting the Node.js architecture.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Bhasa becomes a required dependency.** When `MOCK_MODE=false`, the three Node.js services will HTTP-proxy to Bhasa at `LANGUAGE_SERVICE_URL` (default `http://localhost:8003`). If Bhasa is down, the services will return 503 errors.
+
+> [!IMPORTANT]
+> **Bhasa runs as a separate Python process.** You'll need Python 3.10+ and `pip install` for Bhasa's dependencies, plus Ollama running for NLU. The integration adds Bhasa to Docker Compose so it can also run containerized.
+
+> [!WARNING]
+> **Your `.env` file contains real credentials** (MongoDB Atlas, Twilio, Deepgram, ElevenLabs, JWT secret). I will NOT modify those values but will add new Bhasa-specific env vars below the existing ones.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Port conflict**: The `voice-ai-saas` v2 subproject remaps service ports (STT→4003, NLU→4002) differently from the main project (STT→4004, NLU→4005). Since we're integrating into the **main project**, I'll keep the main project's ports. Should I leave `voice-ai-saas` untouched, or also update it for consistency?
+
+> [!IMPORTANT]
+> **Bhasa source location**: The `bhasa/` folder currently holds standalone `.py` files (`main.py`, `transcribe.py`, etc.) at the top level, but `main.py` imports from `from .routers import ...` suggesting it expects to live inside a `src/` package. I'll restructure it into a proper `src/` package within a new `services/language-service/` folder in the main project. Should I keep a copy in `bhasa/` or is it okay to move it entirely?
+
+---
+
+## Proposed Changes
+
+### Component 1: Restructure Bhasa into `services/language-service/`
+
+Create a proper Python service directory inside the main project's `services/` folder, matching the existing microservice pattern.
+
+#### [NEW] [services/language-service/](file:///d:/Voice%20Agents/services/language-service/)
+
+New directory structure:
+```
+services/language-service/
+├── src/
+│   ├── __init__.py
+│   ├── main.py          ← from bhasa/main.py (already has FastAPI app)
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── transcribe.py  ← from bhasa/transcribe.py
+│   │   ├── understand.py  ← from bhasa/understand.py
+│   │   └── speak.py       ← from bhasa/speak.py
+│   └── middleware/
+│       ├── __init__.py
+│       ├── rate_limit.py   ← extracted from bhasa middleware refs
+│       └── request_log.py
+├── requirements.txt
+├── Dockerfile
+├── README.md
+└── language_client.py     ← from bhasa/language_client.py
+```
+
+---
+
+### Component 2: Upgrade STT Service — Bhasa Integration
+
+#### [MODIFY] [app.js](file:///d:/Voice%20Agents/services/stt-service/src/app.js)
+
+Add a Bhasa HTTP call path when `MOCK_MODE=false`:
+
+```diff
+ app.post('/transcribe', asyncHandler(async (req, res) => {
++  // When MOCK_MODE is off, proxy to Bhasa language service for real Whisper ASR
++  if (process.env.MOCK_MODE !== 'true') {
++    const languageUrl = process.env.LANGUAGE_SERVICE_URL || 'http://localhost:8003';
++    try {
++      const bhasa = await axios.post(`${languageUrl}/transcribe`, audioFormData, { headers });
++      return http.success(req, res, {
++        transcript: bhasa.data.text,
++        language: bhasa.data.language,
++        confidence: bhasa.data.confidence,
++        provider: 'bhasa-whisper'
++      }, 'Transcription completed');
++    } catch (err) {
++      logger.error('Bhasa ASR failed', { error: err.message });
++      // Fall through to mock if Bhasa is unreachable
++    }
++  }
++
+   // Existing mock logic (unchanged)
+   const transcript = req.body.text || ...;
+```
+
+- Supports both raw audio files (`multipart/form-data`) and text passthrough
+- Falls back to mock if Bhasa is unreachable (graceful degradation)
+
+---
+
+### Component 3: Upgrade NLU Service — Bhasa Integration
+
+#### [MODIFY] [app.js](file:///d:/Voice%20Agents/services/nlu-service/src/app.js)
+
+Add a Bhasa NLU call when `MOCK_MODE=false`:
+
+```diff
+ app.post('/understand', asyncHandler(async (req, res) => {
++  if (process.env.MOCK_MODE !== 'true') {
++    const languageUrl = process.env.LANGUAGE_SERVICE_URL || 'http://localhost:8003';
++    try {
++      const bhasa = await axios.post(`${languageUrl}/understand`, {
++        text: transcript,
++        context: { history: req.body.history, entities: req.body.entities }
++      });
++      // Map Bhasa's response format to what call-gateway expects
++      return http.success(req, res, {
++        intent: bhasa.data.intent,
++        entities: mapBhasaEntities(bhasa.data.entities),
++        response: buildResponse(bhasa.data.intent, mapBhasaEntities(bhasa.data.entities)),
++        shouldEndCall: ...,
++        needsHuman: bhasa.data.intent === 'speak_to_human',
++        provider: 'bhasa-ollama'
++      }, 'Intent processed');
++    } catch (err) {
++      logger.warn('Bhasa NLU failed, falling back to rules', { error: err.message });
++    }
++  }
++
+   // Existing rule-based logic (unchanged, acts as fallback)
+```
+
+- Bhasa returns intents in a slightly different format (snake_case like `book_ticket`) — we add a mapping layer to align with the main project's `constants.INTENTS`
+- The existing rule-based `buildResponse()` is reused to generate the agent reply from AI-detected intents
+- Graceful fallback to rule-based NLU
+
+---
+
+### Component 4: Upgrade TTS Service — Bhasa Integration
+
+#### [MODIFY] [app.js](file:///d:/Voice%20Agents/services/tts-service/src/app.js)
+
+Add Bhasa TTS call when `MOCK_MODE=false`:
+
+```diff
+ app.post('/synthesize', asyncHandler(async (req, res) => {
++  if (process.env.MOCK_MODE !== 'true') {
++    const languageUrl = process.env.LANGUAGE_SERVICE_URL || 'http://localhost:8003';
++    try {
++      const bhasa = await axios.post(`${languageUrl}/speak`, {
++        text, language: req.body.language || 'hi', speed: 1.0
++      }, { responseType: 'arraybuffer' });
++
++      // Save audio to a temp file / serve URL
++      const audioUrl = await saveAudioAndGetUrl(bhasa.data);
++      return http.success(req, res, {
++        audioUrl,
++        text,
++        language: req.body.language || 'hi',
++        provider: 'bhasa-tts'
++      }, 'Speech synthesized');
++    } catch (err) {
++      logger.warn('Bhasa TTS failed', { error: err.message });
++    }
++  }
++
+   // Existing mock logic (unchanged)
+```
+
+- Bhasa returns raw audio bytes (WAV/MP3) — we save to a local file and serve via a static URL, or base64 encode it for the response
+- Add `express.static` for serving generated audio files
+- Graceful fallback to mock
+
+---
+
+### Component 5: Environment Configuration
+
+#### [MODIFY] [.env](file:///d:/Voice%20Agents/.env)
+
+Add Bhasa/Language Service configuration:
+
+```diff
++# Language Service (Bhasa) — Real AI backend
++LANGUAGE_SERVICE_URL=http://localhost:8003
++PORT_LANGUAGE_SERVICE=8003
++WHISPER_MODEL=base
++OLLAMA_URL=http://localhost:11434
++NLU_MODEL=mistral
++TTS_ENGINE=gtts
+```
+
+---
+
+### Component 6: Docker Compose — Add Language Service + Ollama
+
+#### [MODIFY] [docker-compose.yml](file:///d:/Voice%20Agents/docker-compose.yml)
+
+```diff
+ services:
+   mongodb: ...
+   redis: ...
++
++  ollama:
++    image: ollama/ollama:latest
++    container_name: voiceai_ollama
++    ports: ["11434:11434"]
++    volumes: [ollama_models:/root/.ollama]
++    restart: unless-stopped
++
++  language-service:
++    build: ./services/language-service
++    container_name: voiceai_language
++    ports: ["8003:8003"]
++    environment:
++      - OLLAMA_URL=http://ollama:11434
++      - REDIS_URL=redis://redis:6379
++      - WHISPER_MODEL=${WHISPER_MODEL:-base}
++      - NLU_MODEL=${NLU_MODEL:-mistral}
++      - TTS_ENGINE=${TTS_ENGINE:-gtts}
++    depends_on: [redis, ollama]
++    restart: unless-stopped
+
+ volumes:
+   mongodb_data:
+   redis_data:
++  ollama_models:
+```
+
+---
+
+### Component 7: Root Package.json — Add Language Service to `dev` Script
+
+#### [MODIFY] [package.json](file:///d:/Voice%20Agents/package.json)
+
+Add a script to start the language service alongside Node.js services:
+
+```diff
+ "scripts": {
+-  "dev": "concurrently \"npm run dev -w services/lead-service\" ...",
++  "dev": "concurrently \"npm run dev -w services/lead-service\" ... \"cd services/language-service && uvicorn src.main:app --host 0.0.0.0 --port 8003 --reload\"",
++  "dev:bhasa": "cd services/language-service && uvicorn src.main:app --host 0.0.0.0 --port 8003 --reload",
++  "dev:ollama": "ollama serve",
+```
+
+---
+
+### Component 8: Shared Constants — Add Intent Mappings
+
+#### [MODIFY] [index.js](file:///d:/Voice%20Agents/shared/constants/index.js)
+
+Add a mapping table so Bhasa's intent names align with the main project's:
+
+```diff
++// Bhasa → Main project intent mapping
++const BHASA_INTENT_MAP = {
++  'book_ticket': 'book_appointment',
++  'book_appointment': 'book_appointment',
++  'check_order': 'check_order_status',
++  'get_help': 'speak_to_human',
++  'chitchat': 'general_query',
++  'capture_lead': 'capture_lead',
++  'get_business_info': 'get_business_info',
++};
+
+ module.exports = {
+   INTENTS,
++  BHASA_INTENT_MAP,
+   CALL_STATUS,
+```
+
+---
+
+### Component 9: Language Service Dockerfile
+
+#### [NEW] [Dockerfile](file:///d:/Voice%20Agents/services/language-service/Dockerfile)
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8003
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8003"]
+```
+
+---
+
+### Component 10: Language Service requirements.txt
+
+#### [NEW] [requirements.txt](file:///d:/Voice%20Agents/services/language-service/requirements.txt)
+
+```
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+httpx>=0.25.0
+pydantic>=2.0
+python-multipart>=0.0.6
+faster-whisper>=0.9.0
+gtts>=2.3.0
+pydub>=0.25.0
+openai>=1.0.0
+```
+
+---
+
+## Change Summary
+
+| What Changes | Where | Impact |
+|-------------|-------|--------|
+| STT service gains real Whisper ASR | `services/stt-service/src/app.js` | When `MOCK_MODE=false`, real transcription via Bhasa |
+| NLU service gains Ollama/GPT AI | `services/nlu-service/src/app.js` | When `MOCK_MODE=false`, AI intent extraction via Bhasa |
+| TTS service gains real speech synthesis | `services/tts-service/src/app.js` | When `MOCK_MODE=false`, real audio via Bhasa |
+| New `language-service` in `services/` | `services/language-service/` | Bhasa relocated to match project structure |
+| Docker Compose adds Ollama + Bhasa | `docker-compose.yml` | `docker-compose up` brings up full AI stack |
+| Intent mapping constants | `shared/constants/index.js` | Bhasa↔Main intent name translation |
+| New env vars | `.env` | `LANGUAGE_SERVICE_URL`, Whisper/Ollama/TTS config |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+1. **Syntax check**: `npm run check` (ensures all Node.js services still parse)
+2. **Mock mode regression**: Start services with `MOCK_MODE=true` → `curl` the call-connect/speech-input webhooks → verify identical responses as before
+3. **Bhasa health check**: `curl http://localhost:8003/health` → expect `{"status": "ok", "service": "language-service"}`
+4. **Real mode STT test**: Set `MOCK_MODE=false` → POST audio to `localhost:4004/transcribe` → verify Bhasa Whisper returns real transcript
+5. **Real mode NLU test**: POST Hindi text to `localhost:4005/understand` → verify AI intent extraction
+6. **Real mode TTS test**: POST text to `localhost:4006/synthesize` → verify audio URL is returned
+7. **End-to-end pipeline**: `curl` the full call-connect → speech-input flow with `MOCK_MODE=false`
+
+### Manual Verification
+- Confirm Docker Compose brings up all containers including `ollama` and `language-service`
+- Verify Ollama model is pulled (`docker exec voiceai_ollama ollama pull mistral`)

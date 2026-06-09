@@ -1,0 +1,15 @@
+{
+  "name": "nlu-service",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": { "start": "node src/index.js", "dev": "nodemon src/index.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ollama": "^0.5.x",
+    "axios": "^1.6.x",
+    "ioredis": "^5.x",
+    "uuid": "^9.x",
+    "winston": "^3.x",
+    "dotenv": "^16.x"
+  }
+}

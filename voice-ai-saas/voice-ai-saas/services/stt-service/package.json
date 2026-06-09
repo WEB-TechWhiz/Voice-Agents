@@ -1,0 +1,15 @@
+{
+  "name": "stt-service",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": { "start": "node src/index.js", "dev": "nodemon src/index.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.x",
+    "form-data": "^4.x",
+    "fluent-ffmpeg": "^2.x",
+    "multer": "^1.x",
+    "winston": "^3.x",
+    "dotenv": "^16.x"
+  }
+}

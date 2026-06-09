@@ -1,0 +1,13 @@
+{
+  "name": "voice-ai-saas",
+  "version": "2.0.0",
+  "description": "Voice AI SaaS — Zero Cost Stack | Muffincodes",
+  "private": true,
+  "scripts": {
+    "dev": "docker-compose up -d",
+    "dev:logs": "docker-compose logs -f",
+    "stop": "docker-compose down",
+    "test": "echo \"Run tests inside each service\"",
+    "lint": "echo \"Run eslint inside each service\""
+  }
+}
