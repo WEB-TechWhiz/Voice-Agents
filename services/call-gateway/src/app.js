@@ -22,6 +22,8 @@ const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
 });
 
 const memorySessions = new Map();
+const mockTenants = new Map();
+const isMockMode = () => process.env.MOCK_MODE !== 'false';
 const urls = {
   lead: process.env.LEAD_SERVICE_URL || 'http://localhost:4003',
   stt: process.env.STT_SERVICE_URL || 'http://localhost:4004',
@@ -44,6 +46,7 @@ const validatePhoneNumber = (value, fieldName) => {
 };
 
 const redisAvailable = async () => {
+  if (isMockMode()) return false;
   try {
     if (['wait', 'close', 'end', 'reconnecting'].includes(redis.status)) {
       await redis.connect();
@@ -115,6 +118,14 @@ const resolveTenant = async (payload) => {
     return payload.tenantId || process.env.DEMO_TENANT_ID;
   }
 
+  if (isMockMode()) {
+    const key = payload.exotelNumber || 'demo';
+    if (!mockTenants.has(key)) {
+      mockTenants.set(key, `demo-tenant-${key.replace(/[^a-z0-9]/gi, '') || 'default'}`);
+    }
+    return mockTenants.get(key);
+  }
+
   const response = await axios.post(`${urls.lead}/tenants/resolve`, {
     exotelNumber: payload.exotelNumber,
     businessName: process.env.DEMO_BUSINESS_NAME || 'Demo Clinic',
@@ -140,11 +151,13 @@ app.post('/webhook/call-connect', verifyExotelSignature, asyncHandler(async (req
   };
 
   await saveSession(session);
-  await axios.post(`${urls.lead}/calls`, {
-    tenantId,
-    callSid: payload.callSid,
-    callerPhone: payload.callerPhone
-  });
+  if (!isMockMode()) {
+    await axios.post(`${urls.lead}/calls`, {
+      tenantId,
+      callSid: payload.callSid,
+      callerPhone: payload.callerPhone
+    });
+  }
 
   const greeting = process.env.MOCK_GREETING || 'Namaste! Demo Clinic mein aapka swagat hai. Aap kis cheez ke liye call kar rahe hain?';
   logger.info('Call connected', { tenantId, callSid: payload.callSid, callerPhone: payload.callerPhone });
@@ -252,14 +265,16 @@ app.post('/webhook/speech-input', verifyExotelSignature, asyncHandler(async (req
   session.history.push({ speaker: 'agent', text: nlu.response, timestamp: new Date().toISOString() });
   await saveSession(session);
 
-  await axios.put(`${urls.lead}/calls/${payload.callSid}`, {
-    transcript: [
-      { speaker: 'caller', text: transcript },
-      { speaker: 'agent', text: nlu.response }
-    ],
-    intent: nlu.intent,
-    entities: session.entities
-  });
+  if (!isMockMode()) {
+    await axios.put(`${urls.lead}/calls/${payload.callSid}`, {
+      transcript: [
+        { speaker: 'caller', text: transcript },
+        { speaker: 'agent', text: nlu.response }
+      ],
+      intent: nlu.intent,
+      entities: session.entities
+    });
+  }
 
   if (nlu.intent === 'capture_lead' || nlu.intent === 'book_appointment') {
     await axios.post(`${urls.lead}/leads`, {
